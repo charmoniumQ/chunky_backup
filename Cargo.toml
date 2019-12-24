@@ -5,3 +5,6 @@ authors = ["Samuel Grayson <sam@samgrayson.me>"]
 edition = "2018"
 
 [dependencies]
+walkdir = "2"
+globber = "0.1"
+error-chain = "0.12.1"

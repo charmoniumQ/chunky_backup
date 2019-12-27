@@ -11,11 +11,6 @@ extern crate error_chain;
 mod errors {
     // Create the Error, ErrorKind, ResultExt, and Result types
     error_chain! {
-        foreign_links {
-            Io(std::io::Error);
-            StripPrefix(std::path::StripPrefixError);
-            WalkDir(walkdir::Error);
-        }
     }
 }
 
@@ -23,60 +18,11 @@ mod errors {
 // instead if the types must be accessible from other modules (e.g., within
 // a `links` section).
 use errors::*;
-
-
 use std::path::Path;
 use std::vec::Vec;
-use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
 
-struct Tree {
-    path: Box<Path>,
-    children: HashMap<OsString, Tree>,
-}
-
-impl Tree {
-    fn insert(&mut self, child: &Path) -> Result<&mut Tree> {
-        let rel_path = child.strip_prefix(&*self.path)?;
-        self._insert_helper(
-            rel_path.ancestors()
-                .map(Box::from)
-                .collect::<Vec<Box<Path>>>()
-        )
-    }
-
-    fn _insert_helper(&mut self, mut ancestors: Vec<Box<Path>>)
-                      -> Result<&mut Tree> {
-        match ancestors.pop() {
-            Some(ancestor) => {
-                let name: &OsStr = ancestor.file_name()
-                    .ok_or("No filename for this segment")?;
-                self.children.entry(OsString::from(name))
-                    .or_insert_with(|| Tree::new(ancestor))
-                    ._insert_helper(ancestors)
-            },
-            None => Ok(self),
-        }
-    }
-
-    fn new(path: Box<Path>) -> Tree {
-        Tree {
-            path,
-            children: HashMap::new(),
-        }
-    }
-}
-
-fn construct_tree(config: &Config) -> Result<Tree> {
-    let mut root = Tree::new(config.root_dir.clone());
-    let maybe_dir_entries = walkdir::WalkDir::new(config.root_dir.clone())
-        .follow_links(false);
-    for maybe_dir_entry in maybe_dir_entries {
-        let dir_entry = maybe_dir_entry?;
-        root.insert(dir_entry.path())?;
-    }
-    Ok(root)
-}
+mod named_tree;
+mod fs_tree;
 
 fn chunk_buffer(contents: Box<[u8]>, _config: &Config)
                          -> Vec<Box<[u8]>> {
@@ -95,5 +41,5 @@ fn main() {
         block_size: 8192,
     };
 
-    construct_tree(&config).expect("");
+    // Tree::construct(&*config.root_dir).unwrap();
 }

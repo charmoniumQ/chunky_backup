@@ -20,6 +20,7 @@ use std::rc::{Rc, Weak};
 use std::cell::RefCell;
 use std::hash::Hash;
 use std::fmt::Debug;
+use std::vec::Vec;
 
 // For inspiriation, See
 // https://github.com/SimonSapin/rust-forest/blob/master/rctree/lib.rs
@@ -41,7 +42,7 @@ impl<Name, Data> Clone for Tree<Name, Data> {
     }
 }
 
-impl<Name: Hash + Eq + Debug, Data: Clone> Tree<Name, Data> {
+impl<Name: Hash + Eq + Debug + Clone, Data: Clone> Tree<Name, Data> {
     /**
 Creates a new rooted tree.
      */
@@ -103,6 +104,20 @@ Returns the parent, if one exists.
         })
     }
 
+    fn data(&self) -> Result<Data> {
+        Ok(self.0.try_borrow()?
+           .data
+           .clone())
+    }
+
+    fn children(&self) -> Result<Vec<(Name, Self)>> {
+        Ok(self.0.try_borrow()?
+           .children
+           .iter()
+           .map(|(name, tree)| (name.clone(), Tree(tree.clone())))
+           .collect())
+    }
+
 }
 
 #[cfg(test)]
@@ -116,8 +131,32 @@ mod tests {
         tree.ensure_child("bill".to_string(), 19)?;
         tree.ensure_child("bob".to_string(), 11)?;
         assert!(tree.parent()?.is_none());
-        assert!(tree.child(&"bob".to_string())?.ok_or("missing child")?.parent()?.is_some());
-        assert!(tree.child(&"bill".to_string())?.ok_or("missing child")?.parent()?.is_some());
+        let mut children: Vec<String> = tree.children()?
+            .into_iter()
+            .map(|(name, _tree)| name)
+            .collect();
+        children.sort();
+        assert_eq!(children, vec!["bill", "bob"]);
+        assert_eq!(
+            tree.child(&"bob".to_string())?
+                .ok_or("missing child")?
+                .parent()?
+                .ok_or("missing parent")?
+                .data()?,
+            34
+        );
+        assert_eq!(
+            tree.child(&"bob".to_string())?
+                .ok_or("missing child")?
+                .data()?,
+            13
+        );
+        assert_eq!(
+            tree.child(&"bill".to_string())?
+                .ok_or("missing child")?
+                .data()?,
+            19
+        );
         assert!(tree.child(&"joe".to_string())?.is_none());
         Ok(())
     }

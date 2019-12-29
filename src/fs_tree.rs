@@ -1,52 +1,69 @@
-// We'll put our errors in an `errors` module, and other modules in
-// this crate will `use errors::*;` to get access to everything
-// `error_chain!` creates.
-mod errors {
-    // Create the Error, ErrorKind, ResultExt, and Result types
-    error_chain! {
-        foreign_links {
-            Io(std::io::Error);
-            StripPrefix(std::path::StripPrefixError);
-            WalkDir(walkdir::Error);
+use std::ffi::OsString;
+use std::path::Path;
+use globset::Glob;
+use crate::named_tree::Tree;
+use crate::errors::*;
+
+pub struct FsTree<Data>(Tree<OsString, Data>);
+
+impl<Data> FsTree<Data> {
+
+    // pub fn insert_subtree(&self, child: &Path) -> Result<Self> {
+    //     self.insert_subtree_helper(
+    //         child.ancestors()
+    //             .map(Box::from)
+    //             .collect::<Vec<Box<Path>>>()
+    //     )
+    // }
+
+    // fn insert_subtree_helper(&self, mut ancestors: Vec<Box<Path>>) -> Result<Self> {
+    //     match ancestors.pop() {
+    //         Some(ancestor) => {
+    //             let name = OsString::from(
+    //                 ancestor.file_name()
+    //                     .ok_or("No filename for this segment")?
+    //             );
+    //             Ok(FsTree(self.0.child(&name)?
+    //                       .ok_or("No such child")?
+    //             ).insert_subtree_helper(ancestors)?
+    //             )
+    //         },
+    //         None => Ok(FsTree(self.0.clone())),
+    //     }
+    // }
+
+    pub fn construct(path: &Path, data_fn: impl Fn(&Path) -> Data, excludes: Vec<&str>) -> Result<Self> {
+        let exclude_globs: Vec<_> = excludes
+            .into_iter()
+            .map(|pattern| {
+                Glob::new(pattern).map_or_else(
+                    |err| {
+                        eprintln!(
+                            "Failed to parse \"{:?}\": {:?}", pattern, err
+                        );
+                        None                        
+                    },
+                    Some,
+                )
+            })
+            .filter_map(|x| x)
+            .map(|pattern| pattern.compile_matcher())
+            .collect();
+        let mut root = Tree::new(data_fn(path));
+        let maybe_dir_entries = walkdir::WalkDir::new(path)
+            .contents_first(false)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|p|
+                          exclude_globs.iter()
+                          .any(|g| g.is_match(p.path()))
+            );
+        for maybe_dir_entry in maybe_dir_entries {
+            let dir_entry = maybe_dir_entry?;
+            let path = dir_entry.path();
+            let name = OsString::from(path.file_name().ok_or("no file name")?);
+            root.insert(name, data_fn(path));
         }
+        Ok(FsTree(root))
     }
 }
-
-use std::ffi::{OsStr, OsString};
-use std::path::Path;
-
-// impl<'parent> Tree<'parent> {
-//     fn insert(&mut self, child: &Path) -> Result<&mut Tree<'parent>> {
-//         let rel_path = child.strip_prefix(&*self.path)?;
-//         self._insert_helper(
-//             rel_path.ancestors()
-//                 .map(Box::from)
-//                 .collect::<Vec<Box<Path>>>()
-//         )
-//     }
-
-//     fn _insert_helper(&mut self, mut ancestors: Vec<Box<Path>>)
-//                       -> Result<&mut Tree<'parent>> {
-//         match ancestors.pop() {
-//             Some(ancestor) => {
-//                 let name: &OsStr = ancestor.file_name()
-//                     .ok_or("No filename for this segment")?;
-//                 self.children.entry(OsString::from(name))
-//                     .or_insert_with(|| Tree::_new(ancestor, Some(self)))
-//                     ._insert_helper(ancestors)
-//             },
-//             None => Ok(self),
-//         }
-//     }
-
-//     fn construct(path: &Path) -> Result<Tree<'parent>> {
-//         let mut root = Self::_new(Box::from(path), None);
-//         let maybe_dir_entries = walkdir::WalkDir::new(path)
-//             .follow_links(false);
-//         for maybe_dir_entry in maybe_dir_entries {
-//             let dir_entry = maybe_dir_entry?;
-//             root.insert(dir_entry.path())?;
-//         }
-//         Ok(root)
-//     }
-// }

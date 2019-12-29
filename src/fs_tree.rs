@@ -1,13 +1,12 @@
+use crate::errors::*;
+use crate::named_tree::Tree;
+use globset::Glob;
 use std::ffi::OsString;
 use std::path::Path;
-use globset::Glob;
-use crate::named_tree::Tree;
-use crate::errors::*;
 
 pub struct FsTree<Data>(Tree<OsString, Data>);
 
 impl<Data> FsTree<Data> {
-
     // pub fn insert_subtree(&self, child: &Path) -> Result<Self> {
     //     self.insert_subtree_helper(
     //         child.ancestors()
@@ -32,21 +31,23 @@ impl<Data> FsTree<Data> {
     //     }
     // }
 
-    pub fn construct(path: &Path, data_fn: impl Fn(&Path) -> Data, excludes: Vec<&str>) -> Result<Self> {
+    pub fn construct(
+        path: &Path,
+        data_fn: impl Fn(&Path) -> Data,
+        excludes: Vec<&str>,
+    ) -> Result<Self> {
         let exclude_globs: Vec<_> = excludes
             .into_iter()
-            .map(|pattern| {
+            .filter_map(|pattern| {
                 Glob::new(pattern).map_or_else(
+                    // If a glob fails, issue a non-fatal error
                     |err| {
-                        eprintln!(
-                            "Failed to parse \"{:?}\": {:?}", pattern, err
-                        );
-                        None                        
+                        eprintln!("Failed to parse \"{:?}\": {:?}", pattern, err);
+                        None
                     },
                     Some,
                 )
             })
-            .filter_map(|x| x)
             .map(|pattern| pattern.compile_matcher())
             .collect();
         let mut root = Tree::new(data_fn(path));
@@ -54,10 +55,7 @@ impl<Data> FsTree<Data> {
             .contents_first(false)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|p|
-                          exclude_globs.iter()
-                          .any(|g| g.is_match(p.path()))
-            );
+            .filter_entry(|p| exclude_globs.iter().any(|g| g.is_match(p.path())));
         for maybe_dir_entry in maybe_dir_entries {
             let dir_entry = maybe_dir_entry?;
             let path = dir_entry.path();

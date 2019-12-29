@@ -5,18 +5,16 @@
 #[macro_use]
 extern crate error_chain;
 
-use std::path::Path;
 pub use errors::*;
+use std::path::Path;
 
 mod errors;
-mod named_tree;
 mod fs_tree;
+mod named_tree;
 
 struct Config {
     root_dir: Box<Path>,
     block_size: i32,
 }
 
-quick_main!(|| -> Result<()> {
-    Ok(())
-});
+quick_main!(|| -> Result<()> { Ok(()) });

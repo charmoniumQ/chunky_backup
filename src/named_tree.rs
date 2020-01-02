@@ -1,7 +1,7 @@
 use crate::errors::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter, Result as fmtResult};
 use std::hash::Hash;
 use std::rc::{Rc, Weak};
 use std::vec::Vec;
@@ -23,7 +23,7 @@ impl<Name, Data> Clone for Tree<Name, Data> {
     }
 }
 
-impl<Name: Hash + Eq + Debug + Clone, Data> Tree<Name, Data> {
+impl<Name: Hash + Eq, Data> Tree<Name, Data> {
     /**
     Creates a new rooted tree.
          */
@@ -84,7 +84,9 @@ impl<Name: Hash + Eq + Debug + Clone, Data> Tree<Name, Data> {
     pub fn data(&self) -> Rc<RefCell<Data>> {
         self.0.borrow().data.clone()
     }
+}
 
+impl<Name: Clone, Data> Tree<Name, Data> {
     pub fn children(&self) -> Vec<(Name, Self)> {
         self.0
             .borrow()
@@ -92,6 +94,38 @@ impl<Name: Hash + Eq + Debug + Clone, Data> Tree<Name, Data> {
             .iter()
             .map(|(name, tree)| (name.clone(), Tree(tree.clone())))
             .collect()
+    }
+}
+
+impl<Name: Debug + Clone, Data: Debug + Clone> Debug for Tree<Name, Data> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmtResult {
+        write!(f, "({:?} ", self.0.borrow().data.clone())?;
+        for (name, subtree) in self.0.borrow().children.iter() {
+            write!(f, "{:?} -> {:?}", name, Tree(subtree.clone()))?;
+        }
+        write!(f, ")")?;
+        Ok(())
+    }
+}
+
+impl<Name: Display + Clone, Data: Display + Clone> Tree<Name, Data> {
+    fn fmt_indent(&self, f: &mut Formatter<'_>, indent: usize, name: String)
+                  -> fmtResult {
+        write!(f, "{}+ {} ({})",
+               "-".repeat(indent),
+               name,
+               self.0.borrow().data.borrow())?;
+        for (name, subtree) in self.0.borrow().children.iter() {
+            Tree(subtree.clone()).fmt_indent(f, indent + 2, format!("{}", name))?;
+        }
+        Ok(())
+    }
+}
+
+impl<Name: Display + Clone, Data: Display + Clone> Display for Tree<Name, Data> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmtResult {
+        self.fmt_indent(f, 0, ".".to_string())?;
+        Ok(())
     }
 }
 

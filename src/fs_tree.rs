@@ -1,38 +1,11 @@
 use crate::errors::*;
 use crate::named_tree::Tree;
 use globset::Glob;
-use std::ffi::OsString;
 use std::path::Path;
 
-pub struct FsTree<Data>(Tree<OsString, Data>);
-
-impl<Data> FsTree<Data> {
-    // pub fn insert_subtree(&self, child: &Path) -> Result<Self> {
-    //     self.insert_subtree_helper(
-    //         child.ancestors()
-    //             .map(Box::from)
-    //             .collect::<Vec<Box<Path>>>()
-    //     )
-    // }
-
-    // fn insert_subtree_helper(&self, mut ancestors: Vec<Box<Path>>) -> Result<Self> {
-    //     match ancestors.pop() {
-    //         Some(ancestor) => {
-    //             let name = OsString::from(
-    //                 ancestor.file_name()
-    //                     .ok_or("No filename for this segment")?
-    //             );
-    //             Ok(FsTree(self.0.child(&name)?
-    //                       .ok_or("No such child")?
-    //             ).insert_subtree_helper(ancestors)?
-    //             )
-    //         },
-    //         None => Ok(FsTree(self.0.clone())),
-    //     }
-    // }
-
+impl<Data> Tree<String, Data> {
     pub fn construct(
-        path: &Path,
+        root_path: &Path,
         data_fn: impl Fn(&Path) -> Data,
         excludes: Vec<&str>,
     ) -> Result<Self> {
@@ -50,18 +23,85 @@ impl<Data> FsTree<Data> {
             })
             .map(|pattern| pattern.compile_matcher())
             .collect();
-        let mut root = Tree::new(data_fn(path));
-        let maybe_dir_entries = walkdir::WalkDir::new(path)
+
+        let root = Self::new(data_fn(root_path.strip_prefix(root_path)?));
+
+        let maybe_dir_entries = walkdir::WalkDir::new(root_path)
             .contents_first(false)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|p| exclude_globs.iter().any(|g| g.is_match(p.path())));
+            .filter_entry(|dir_entry| !exclude_globs.iter().any(|g| g.is_match(dir_entry.path())));
+
         for maybe_dir_entry in maybe_dir_entries {
             let dir_entry = maybe_dir_entry?;
-            let path = dir_entry.path();
-            let name = OsString::from(path.file_name().ok_or("no file name")?);
-            root.insert(name, data_fn(path));
+            if dir_entry.path() != root_path {
+                let path = dir_entry.path().strip_prefix(root_path)?;
+                let name = path
+                    .file_name()
+                    .ok_or("no filename")?
+                    .to_str()
+                    .ok_or("not unicode")?
+                    .to_owned();
+                let parents = path
+                    .parent()
+                    .ok_or("file out of tree returned")?
+                    .ancestors()
+                    .filter_map(|p| p.file_name())
+                    .map(|p| -> Result<_> { Ok(p.to_str().ok_or("not unicode")?.to_owned()) })
+                    .collect::<Result<Vec<_>>>()?;
+                root.recursive_get(parents)
+                    .ok_or("violated my assumption that the fs will be traversed in pre-order")?
+                    .insert(name, data_fn(path));
+            }
         }
-        Ok(FsTree(root))
+
+        Ok(root)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io;
+
+    fn touch(path: &Path) -> io::Result<fs::File> {
+        fs::OpenOptions::new().create(true).write(true).open(path)
+    }
+
+    fn mkdirp(path: &Path) -> io::Result<()> {
+        fs::create_dir_all(path)
+    }
+
+    #[test]
+    fn it_works() -> Result<()> {
+        use tempfile::tempdir;
+
+        // Create a directory inside of `std::env::temp_dir()`.
+        let dir = tempdir()?;
+        let p = dir.path();
+
+        mkdirp(&p.join("./a"))?;
+        mkdirp(&p.join("./b"))?;
+        touch(&p.join("./a/123"))?;
+        touch(&p.join("./b/456"))?;
+        mkdirp(&p.join("./b/789"))?;
+        touch(&p.join("./b/789/abc"))?;
+        touch(&p.join("./c"))?;
+
+        let tree = Tree::construct(
+            &p,
+            |p| match p.file_name() {
+                Some(f) => f.to_string_lossy().len(),
+                None => 0,
+            },
+            vec![],
+        )?;
+        println!("{}", tree);
+        println!("{:?}", tree);
+
+        drop(&dir);
+        dir.close()?;
+        Ok(())
     }
 }

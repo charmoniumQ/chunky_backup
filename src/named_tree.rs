@@ -18,8 +18,8 @@ struct TreeNode<Name, Data> {
 pub struct Tree<Name, Data>(Rc<RefCell<TreeNode<Name, Data>>>);
 
 impl<Name, Data> Clone for Tree<Name, Data> {
-    fn clone(&self) -> Tree<Name, Data> {
-        Tree(self.0.clone())
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
     }
 }
 
@@ -28,7 +28,7 @@ impl<Name: Hash + Eq, Data> Tree<Name, Data> {
     Creates a new rooted tree.
          */
     pub fn new(data: Data) -> Self {
-        Tree(Rc::new(RefCell::new(TreeNode {
+        Self(Rc::new(RefCell::new(TreeNode {
             data: Rc::new(RefCell::new(data)),
             parent: None,
             children: HashMap::new(),
@@ -56,22 +56,31 @@ impl<Name: Hash + Eq, Data> Tree<Name, Data> {
         let children = &mut self.0.borrow_mut().children;
         assert!(!children.contains_key(&name));
         children.insert(name, child_tree.clone());
-        Tree(child_tree)
+        Self(child_tree)
     }
 
     /**
     Returns the child with name.
          */
     pub fn child(&self, name: &Name) -> Option<Self> {
-        self.0.borrow().children.get(name).map(|c| Tree(c.clone()))
+        self.0.borrow().children.get(name).map(|c| Self(c.clone()))
     }
 
+    pub fn recursive_get(&self, mut names: Vec<Name>) -> Option<Self> {
+        match names.pop() {
+            Some(name) => self.child(&name).and_then(|p| p.recursive_get(names)),
+            None => Some(Self(self.0.clone())),
+        }
+    }
+}
+
+impl<Name, Data> Tree<Name, Data> {
     /**
     Returns the parent, if one exists.
          */
     pub fn parent(&self) -> Option<Self> {
         match &self.0.borrow().parent {
-            Some(parent) => Some(Tree(
+            Some(parent) => Some(Self(
                 parent
                     .clone()
                     .upgrade()
@@ -99,9 +108,9 @@ impl<Name: Clone, Data> Tree<Name, Data> {
 
 impl<Name: Debug + Clone, Data: Debug + Clone> Debug for Tree<Name, Data> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmtResult {
-        write!(f, "({:?} ", self.0.borrow().data.clone())?;
+        write!(f, "({:?} ", self.0.borrow().data.clone().borrow())?;
         for (name, subtree) in self.0.borrow().children.iter() {
-            write!(f, "{:?} -> {:?}", name, Tree(subtree.clone()))?;
+            write!(f, "{:?} -> {:?} ", name, Tree(subtree.clone()))?;
         }
         write!(f, ")")?;
         Ok(())
@@ -109,14 +118,16 @@ impl<Name: Debug + Clone, Data: Debug + Clone> Debug for Tree<Name, Data> {
 }
 
 impl<Name: Display + Clone, Data: Display + Clone> Tree<Name, Data> {
-    fn fmt_indent(&self, f: &mut Formatter<'_>, indent: usize, name: String)
-                  -> fmtResult {
-        write!(f, "{}+ {} ({})",
-               "-".repeat(indent),
-               name,
-               self.0.borrow().data.borrow())?;
+    fn fmt_indent(&self, f: &mut Formatter<'_>, indent: usize, name: String) -> fmtResult {
+        write!(
+            f,
+            "{}+ {} ({})\n",
+            "-".repeat(indent),
+            name,
+            self.0.borrow().data.borrow()
+        )?;
         for (name, subtree) in self.0.borrow().children.iter() {
-            Tree(subtree.clone()).fmt_indent(f, indent + 2, format!("{}", name))?;
+            Self(subtree.clone()).fmt_indent(f, indent + 2, format!("{}", name))?;
         }
         Ok(())
     }

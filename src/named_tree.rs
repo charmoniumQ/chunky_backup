@@ -121,7 +121,7 @@ impl<Name: Display + Clone, Data: Display + Clone> Tree<Name, Data> {
     fn fmt_indent(&self, f: &mut Formatter<'_>, indent: usize, name: String) -> fmtResult {
         write!(
             f,
-            "{}+ {} ({})\n",
+            "{}+ {} ({})",
             "-".repeat(indent),
             name,
             self.0.borrow().data.borrow()
